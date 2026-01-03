@@ -20,12 +20,19 @@ jobs:
           $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
           "TAILSCALE_IP=$tsIP" | Out-File -Append $env:GITHUB_ENV
 
-      - name: Install Telegram + Chrome
+      - name: Install Chocolatey
         shell: powershell
         run: |
-          winget source update
-          winget install -e --id Telegram.TelegramDesktop --accept-package-agreements --accept-source-agreements --disable-interactivity
-          winget install -e --id Google.Chrome --accept-package-agreements --accept-source-agreements --disable-interactivity
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+      - name: Install Telegram + Chrome (Chocolatey)
+        shell: powershell
+        run: |
+          choco feature enable -n allowGlobalConfirmation
+          choco install googlechrome -y
+          choco install telegram.install -y
 
       - name: Force install Adblock Plus on Chrome (policy)
         shell: powershell
@@ -35,16 +42,9 @@ jobs:
           $policyPath = "HKLM:\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist"
 
           New-Item -Path $policyPath -Force | Out-Null
-          # Use "1" unless you already have other forced extensions
           New-ItemProperty -Path $policyPath -Name "1" -PropertyType String -Value "$extId;$updateUrl" -Force | Out-Null
 
-          # Optional: show policy page after install (to verify)
-          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-          if (Test-Path $chromePath) {
-            Start-Process $chromePath "chrome://policy"
-          }
-
-      - name: Install RustDesk + Set password
+      - name: Install RustDesk + Set password + Get ID
         shell: powershell
         env:
           RUSTDESK_PASSWORD: ${{ secrets.RUSTDESK_PASSWORD }}
@@ -88,10 +88,10 @@ jobs:
           Write-Host "CONNECTION DETAILS:"
           Write-Host "RustDesk ID: $env:RUSTDESK_ID"
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          Write-Host "Password: (hidden)  <-- set to Eltyar via secret"
+          Write-Host "Password: (hidden) <-- set to Eltyar via secret"
           Write-Host "================================"
 
           while ((Get-Date) -lt $endTime) {
-              Write-Host "Status: Online | ID: $env:RUSTDESK_ID | IP: $env:TAILSCALE_IP | $(Get-Date)"
-              Start-Sleep -Seconds 60
+            Write-Host "Status: Online | ID: $env:RUSTDESK_ID | IP: $env:TAILSCALE_IP | $(Get-Date)"
+            Start-Sleep -Seconds 60
           }

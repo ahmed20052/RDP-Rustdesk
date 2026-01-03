@@ -21,4 +21,77 @@ jobs:
           "TAILSCALE_IP=$tsIP" | Out-File -Append $env:GITHUB_ENV
 
       - name: Install Telegram + Chrome
-        s
+        shell: powershell
+        run: |
+          winget source update
+          winget install -e --id Telegram.TelegramDesktop --accept-package-agreements --accept-source-agreements --disable-interactivity
+          winget install -e --id Google.Chrome --accept-package-agreements --accept-source-agreements --disable-interactivity
+
+      - name: Force install Adblock Plus on Chrome (policy)
+        shell: powershell
+        run: |
+          $extId = "cfhdojbkjhnklbpkdaibdccddilifddb"
+          $updateUrl = "https://clients2.google.com/service/update2/crx"
+          $policyPath = "HKLM:\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist"
+
+          New-Item -Path $policyPath -Force | Out-Null
+          # Use "1" unless you already have other forced extensions
+          New-ItemProperty -Path $policyPath -Name "1" -PropertyType String -Value "$extId;$updateUrl" -Force | Out-Null
+
+          # Optional: show policy page after install (to verify)
+          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (Test-Path $chromePath) {
+            Start-Process $chromePath "chrome://policy"
+          }
+
+      - name: Install RustDesk + Set password
+        shell: powershell
+        env:
+          RUSTDESK_PASSWORD: ${{ secrets.RUSTDESK_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RUSTDESK_PASSWORD)) { throw "RUSTDESK_PASSWORD secret is empty" }
+          echo "::add-mask::$env:RUSTDESK_PASSWORD"
+
+          $rdUrl = "https://github.com/rustdesk/rustdesk/releases/download/1.3.1/rustdesk-1.3.1-x86_64.msi"
+          $installerPath = "$env:TEMP\rustdesk.msi"
+          Invoke-WebRequest -Uri $rdUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+
+          & "C:\Program Files\RustDesk\rustdesk.exe" --password "$env:RUSTDESK_PASSWORD"
+
+          Start-Process "C:\Program Files\RustDesk\rustdesk.exe"
+          Start-Sleep -Seconds 10
+
+          $rdID = $null
+          for ($i=0; $i -lt 12; $i++) {
+            $rdID = & "C:\Program Files\RustDesk\rustdesk.exe" --get-id
+            $rdID = ($rdID | Out-String).Trim()
+            if ($rdID -match '^\d{6,}$') { break }
+            Start-Sleep -Seconds 5
+          }
+          if (-not ($rdID -match '^\d{6,}$')) { throw "RustDesk ID not available (still generating / network issue)" }
+
+          "RUSTDESK_ID=$rdID" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Configure Firewall
+        shell: powershell
+        run: |
+          netsh advfirewall firewall add rule name="RustDesk-TCP" dir=in action=allow protocol=TCP localport=21115-21119
+          netsh advfirewall firewall add rule name="RustDesk-UDP" dir=in action=allow protocol=UDP localport=21116
+
+      - name: Runner Status & Keep Alive
+        shell: powershell
+        run: |
+          $endTime = (Get-Date).AddHours(6)
+
+          Write-Host "================================"
+          Write-Host "CONNECTION DETAILS:"
+          Write-Host "RustDesk ID: $env:RUSTDESK_ID"
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          Write-Host "Password: (hidden)  <-- set to Eltyar via secret"
+          Write-Host "================================"
+
+          while ((Get-Date) -lt $endTime) {
+              Write-Host "Status: Online | ID: $env:RUSTDESK_ID | IP: $env:TAILSCALE_IP | $(Get-Date)"
+              Start-Sleep -Seconds 60
+          }
